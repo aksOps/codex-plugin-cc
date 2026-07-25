@@ -6,7 +6,9 @@ This plugin is for Claude Code users who want an easy way to start using Codex f
 they already have.
 
 > [!IMPORTANT]
-> This fork preserves upstream authentication and runtime behavior while
+> This is an independent fork of [openai/codex-plugin-cc](https://github.com/openai/codex-plugin-cc),
+> maintained by aksOps. It is not maintained, sponsored, or endorsed by OpenAI.
+> The fork preserves upstream authentication and runtime behavior while
 > extending Codex delegation and developing safer write-execution features. The
 > feature and release boundary is defined in [Fork Scope](./FORK_SCOPE.md).
 
@@ -29,13 +31,13 @@ they already have.
 Add the marketplace in Claude Code:
 
 ```bash
-/plugin marketplace add openai/codex-plugin-cc
+/plugin marketplace add aksOps/codex-plugin-cc
 ```
 
 Install the plugin:
 
 ```bash
-/plugin install codex@openai-codex
+/plugin install codex@aksops-codex
 ```
 
 Reload plugins:
