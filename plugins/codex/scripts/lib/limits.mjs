@@ -56,8 +56,11 @@ export function truncateOutput(text, maxBytes) {
  * terminated and the returned promise rejects; a job must not be able to run forever because a
  * model never finished a turn.
  */
-export async function withDeadline(work, { maxDurationMs, getPid, onTimeout } = {}) {
+export async function withDeadline(work, { maxDurationMs, getPid, onTimeout, terminate } = {}) {
   const limit = Number.isInteger(maxDurationMs) && maxDurationMs > 0 ? maxDurationMs : DEFAULT_LIMITS.maxDurationMs;
+  // Injectable so tests can assert the termination decision without asking the host to signal a
+  // process group that may belong to something else entirely.
+  const terminateImpl = terminate ?? terminateProcessTree;
 
   let timer = null;
   let timedOut = false;
@@ -65,8 +68,8 @@ export async function withDeadline(work, { maxDurationMs, getPid, onTimeout } = 
     timer = setTimeout(() => {
       timedOut = true;
       const pid = getPid?.();
-      if (Number.isInteger(pid)) {
-        terminateProcessTree(pid);
+      if (Number.isInteger(pid) && pid > 0) {
+        terminateImpl(pid);
       }
       onTimeout?.(limit);
       reject(new Error(`Codex run exceeded the policy limit of ${limit}ms and was terminated.`));
