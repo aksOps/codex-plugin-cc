@@ -6,10 +6,9 @@ This plugin is for Claude Code users who want an easy way to start using Codex f
 they already have.
 
 > [!IMPORTANT]
-> This fork currently preserves the upstream runtime while a subscription-only,
-> quota-aware execution policy is developed. The target behavior and release
-> boundary are defined in [Fork Scope](./FORK_SCOPE.md). Until those gates pass,
-> upstream support for API keys and custom providers remains present.
+> This fork preserves upstream authentication and runtime behavior while
+> quota-aware routing and safer write-execution features are developed. The
+> feature and release boundary is defined in [Fork Scope](./FORK_SCOPE.md).
 
 <video src="./docs/plugin-demo.webm" controls muted playsinline autoplay></video>
 

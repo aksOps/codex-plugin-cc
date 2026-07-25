@@ -19,39 +19,43 @@ The archived Fleet prototype is historical reference material. Nothing under
 the archive participates in installation, runtime loading, tests, packaging, or
 release decisions for the active plugin.
 
-## Authentication Invariants
+## Authentication Boundary
 
-OpenAI execution uses a ChatGPT-authenticated Codex subscription. Production
-readiness requires the plugin to:
+Authentication remains owned by the upstream Codex runtime. The fork does not
+add, replace, restrict, or reinterpret its authentication methods.
 
-- verify the active Codex account through the app-server account interface;
-- accept only a verified ChatGPT authentication mode;
-- reject API-key authentication;
-- reject custom model providers and OpenAI endpoint overrides;
+ChatGPT login, API-key authentication, custom model providers, and endpoint
+configuration continue to behave as documented and implemented upstream.
+Feature code may consume provider availability, model metadata, and quota
+signals exposed by the runtime, but it must not inspect credentials or make
+authentication policy decisions.
+
+The fork must:
+
+- delegate login, refresh, logout, and credential storage to Codex;
+- preserve supported upstream authentication and provider configurations;
 - avoid reading, copying, logging, or returning authentication secrets; and
-- report the authenticated plan and model availability without exposing
-  account identifiers in normal logs.
-
-The upstream runtime does not enforce all of these invariants yet. The fork
-must not claim subscription-only operation until tests and a live setup check
-prove them.
+- keep routing behavior independent from the mechanism used to authenticate.
 
 ## Quota-Aware Routing
 
-Routing uses authenticated provider availability and observed quota state. It
-must never infer quota from model prose or silently substitute a provider.
+Routing uses provider availability and observed quota state when the active
+runtime exposes those signals. It must never infer quota from model prose or
+silently substitute a provider.
 
 The router may send eligible work to Codex when:
 
-- the requested OpenAI model is available;
-- the authenticated Codex quota is above the configured reserve;
-- the task policy permits OpenAI execution; and
+- the requested model is available from the configured Codex provider;
+- the task policy permits Codex execution; and
 - the execution sandbox required by the task is available.
 
-When Codex is unavailable or below reserve, the router returns an explicit
-reason and leaves execution with Claude. Quota degradation must be
-deterministic, observable, and reversible when fresh quota data becomes
-available.
+Automatic quota-aware redirection additionally requires a known quota signal
+above the configured reserve. An unavailable quota signal is reported as
+unknown and must not disable an otherwise supported upstream authentication
+mode or explicit Codex invocation. When Codex is unavailable or known to be
+below reserve, the router returns an explicit reason and leaves automatic
+execution with Claude. Quota degradation must be deterministic, observable,
+and reversible when fresh quota data becomes available.
 
 The router may become aggressive about delegation, but not about authority.
 Automatic write delegation is allowed only within the same effect limits that
@@ -96,18 +100,18 @@ A production release is blocked until all of the following pass on the exact
 release commit:
 
 1. A fresh plugin installation works without a source checkout.
-2. Claude and Codex subscription authentication are verified through their
-   supported local runtimes.
-3. API keys, custom providers, and endpoint overrides are rejected.
-4. Model discovery and quota-aware degradation work in a live session.
-5. Read-only and write-capable invocations complete through the plugin surface.
-6. Write-capable work cannot modify the active checkout or paths outside its
+2. Existing upstream authentication and provider configurations continue to
+   work without fork-specific credential handling.
+3. Model discovery and quota-aware degradation work in a live session,
+   including the explicit unknown-quota case.
+4. Read-only and write-capable invocations complete through the plugin surface.
+5. Write-capable work cannot modify the active checkout or paths outside its
    isolated worktree.
-7. Restart, cancellation, concurrent-job, replay, and stale-state scenarios
+6. Restart, cancellation, concurrent-job, replay, and stale-state scenarios
    pass.
-8. Verification failure prevents completion and merge.
-9. Approval cannot be supplied or forged by model-generated input.
-10. The final diff passes independent code, security, and manual workflow
+7. Verification failure prevents completion and merge.
+8. Approval cannot be supplied or forged by model-generated input.
+9. The final diff passes independent code, security, and manual workflow
     review.
 
 Until every gate passes, the product is a development build rather than a
