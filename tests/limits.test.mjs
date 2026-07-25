@@ -72,10 +72,22 @@ test("output truncation keeps the tail and marks itself", () => {
  */
 function stallingWork() {
   let release;
+  let holder;
   const promise = new Promise((resolve) => {
     release = resolve;
+    // A referenced timer, unlike the deadline's unref'd one, keeps the event loop alive long
+    // enough for the deadline to fire. Without it the loop drains first and the runner reports
+    // "Promise resolution is still pending but the event loop has already resolved".
+    holder = setTimeout(resolve, 5000);
   });
-  return { work: () => promise, release: () => release(), settled: promise };
+  return {
+    work: () => promise,
+    release: () => {
+      clearTimeout(holder);
+      release();
+    },
+    settled: promise
+  };
 }
 
 test("a run that exceeds its deadline rejects and terminates the process tree", async () => {

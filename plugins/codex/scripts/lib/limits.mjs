@@ -63,10 +63,10 @@ export async function withDeadline(work, { maxDurationMs, getPid, onTimeout, ter
   const terminateImpl = terminate ?? terminateProcessTree;
 
   let timer = null;
-  let timedOut = false;
-  const timeout = new Promise((_resolve, reject) => {
+  let resolveTimeout = null;
+  const timeout = new Promise((resolve, reject) => {
+    resolveTimeout = resolve;
     timer = setTimeout(() => {
-      timedOut = true;
       const pid = getPid?.();
       if (Number.isInteger(pid) && pid > 0) {
         terminateImpl(pid);
@@ -76,6 +76,8 @@ export async function withDeadline(work, { maxDurationMs, getPid, onTimeout, ter
     }, limit);
     timer.unref?.();
   });
+  // A rejection nobody is racing anymore is an unhandled rejection.
+  timeout.catch(() => {});
 
   try {
     return await Promise.race([work(), timeout]);
@@ -83,9 +85,10 @@ export async function withDeadline(work, { maxDurationMs, getPid, onTimeout, ter
     if (timer) {
       clearTimeout(timer);
     }
-    if (timedOut) {
-      // Nothing further to clean up here; the caller reports the rejection.
-    }
+    // Clearing the timer stops it from firing but never settles the promise it was going to
+    // settle. Left pending, that promise outlives the race and Node reports "Promise resolution
+    // is still pending but the event loop has already resolved" once the loop drains.
+    resolveTimeout?.();
   }
 }
 
