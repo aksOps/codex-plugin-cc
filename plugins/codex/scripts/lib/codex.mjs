@@ -1101,11 +1101,18 @@ export async function runAppServerTurn(cwd, options = {}) {
   return withAppServer(cwd, async (client) => {
     let threadId;
 
+    // Approval requests are answered by policy, never by the model. Without a handler the
+    // client refuses every server request, which is why approvalPolicy stays "never" then.
+    if (options.requestHandler) {
+      client.setRequestHandler(options.requestHandler);
+    }
+
     if (options.resumeThreadId) {
       emitProgress(options.onProgress, `Resuming thread ${options.resumeThreadId}.`, "starting");
       const response = await resumeThread(client, options.resumeThreadId, cwd, {
         model: options.model,
         sandbox: options.sandbox,
+        approvalPolicy: options.approvalPolicy,
         ephemeral: false
       });
       threadId = response.thread.id;
@@ -1114,6 +1121,7 @@ export async function runAppServerTurn(cwd, options = {}) {
       const response = await startThread(client, cwd, {
         model: options.model,
         sandbox: options.sandbox,
+        approvalPolicy: options.approvalPolicy,
         ephemeral: options.persistThread ? false : true,
         threadName: options.persistThread ? options.threadName : options.threadName ?? null
       });

@@ -25,6 +25,8 @@ import { resolveClaudeSessionPath } from "./lib/claude-session-transfer.mjs";
 import { readStdinIfPiped } from "./lib/fs.mjs";
 import { collectReviewContext, ensureGitRepository, resolveReviewTarget } from "./lib/git.mjs";
 import { binaryAvailable, terminateProcessTree } from "./lib/process.mjs";
+import { createApprovalHandler, resolveAllowedCommands } from "./lib/approvals.mjs";
+import { assertConcurrencyAvailable } from "./lib/limits.mjs";
 import { isKnownAgent, listBuiltInAgents, matchesAnyGlob, resolveAgentCapability } from "./lib/policy.mjs";
 import { loadPromptTemplate, interpolateTemplate } from "./lib/prompts.mjs";
 import {
@@ -573,11 +575,37 @@ async function executeTaskRun(request) {
     throw new Error("Write-capable Codex runs require a tracked job id.");
   }
 
+  if (writeCapable) {
+    // The bound caps concurrent write execution and the worktrees it creates. The job being
+    // started is excluded because the background path records it before the worker runs.
+    assertConcurrencyAvailable(
+      listJobs(workspaceRoot).filter((job) => job.id !== request.jobId),
+      capability.policy,
+      { hint: "check /codex:status" }
+    );
+  }
+
   // Write-capable work never runs against the active checkout.
   const isolation = writeCapable ? createJobWorktree(workspaceRoot, request.jobId) : null;
   if (isolation) {
     request.onProgress?.(`Isolated worktree ready at ${isolation.path} on ${isolation.branch}.`);
   }
+
+  // Write turns ask for approval when Codex tries to step outside the sandbox. Those requests
+  // are answered from policy so a sandbox escape is refused without consulting the model.
+  const approvalDecisions = [];
+  const requestHandler = isolation
+    ? createApprovalHandler({
+        worktreePath: isolation.path,
+        allowedCommands: resolveAllowedCommands(capability.policy),
+        onDecision: (decision) => {
+          approvalDecisions.push(decision);
+          if (!decision.allowed && decision.reason) {
+            request.onProgress?.(decision.reason);
+          }
+        }
+      })
+    : null;
 
   let result;
   try {
@@ -588,6 +616,8 @@ async function executeTaskRun(request) {
       model: request.model,
       effort: request.effort,
       sandbox: writeCapable ? "workspace-write" : "read-only",
+      approvalPolicy: writeCapable ? "on-request" : "never",
+      requestHandler,
       onProgress: request.onProgress,
       persistThread: true,
       threadName: resumeThreadId ? null : buildPersistentTaskThreadName(request.prompt || DEFAULT_CONTINUE_PROMPT)
@@ -632,7 +662,8 @@ async function executeTaskRun(request) {
     reasoningSummary: result.reasoningSummary,
     agent: capability.agent,
     capability: capability.capability,
-    isolation: isolationReport
+    isolation: isolationReport,
+    approvals: approvalDecisions
   };
 
   return {

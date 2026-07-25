@@ -74,6 +74,15 @@
           "type": "array",
           "items": { "type": "string" },
           "description": "Environment variable names forwarded to spawned Codex processes. Everything else is stripped."
+        },
+        "allowedCommands": {
+          "type": "array",
+          "description": "argv prefixes Codex may run when the sandbox blocks a command. Matching is by exact prefix, so [\"npm\",\"test\"] allows `npm test --silent` but not `npm publish`. Omitted or empty means no command approval is ever granted.",
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string" }
+          }
         }
       }
     },

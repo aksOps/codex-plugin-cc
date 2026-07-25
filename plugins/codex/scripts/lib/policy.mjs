@@ -27,7 +27,9 @@ const DEFAULT_LIMITS = {
   maxOutputBytes: 1048576,
   maxConcurrentJobs: 3,
   network: "off",
-  envPassthrough: ["PATH", "HOME", "LANG"]
+  envPassthrough: ["PATH", "HOME", "LANG"],
+  // argv prefixes Codex may run when the sandbox blocks a command. Empty means "allow none".
+  allowedCommands: []
 };
 
 const DEFAULT_LANDING = {
@@ -198,7 +200,21 @@ function validateLimits(rawLimits) {
   if (!Array.isArray(limits.envPassthrough) || limits.envPassthrough.some((name) => typeof name !== "string")) {
     return { error: "policy.limits.envPassthrough must be an array of strings." };
   }
-  return { limits: { ...limits, envPassthrough: [...limits.envPassthrough] } };
+  if (
+    !Array.isArray(limits.allowedCommands) ||
+    limits.allowedCommands.some(
+      (argv) => !Array.isArray(argv) || argv.length === 0 || argv.some((value) => typeof value !== "string")
+    )
+  ) {
+    return { error: "policy.limits.allowedCommands must be an array of non-empty argv arrays." };
+  }
+  return {
+    limits: {
+      ...limits,
+      envPassthrough: [...limits.envPassthrough],
+      allowedCommands: limits.allowedCommands.map((argv) => [...argv])
+    }
+  };
 }
 
 function validateLanding(rawLanding) {
