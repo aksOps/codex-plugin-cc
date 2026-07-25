@@ -6,7 +6,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import { buildEnv, installFakeCodex } from "./fake-codex-fixture.mjs";
-import { initGitRepo, makeTempDir, run } from "./helpers.mjs";
+import { initGitRepo, makeTempDir, run, writePolicy } from "./helpers.mjs";
 import { loadBrokerSession, saveBrokerSession } from "../plugins/codex/scripts/lib/broker-lifecycle.mjs";
 import { resolveStateDir } from "../plugins/codex/scripts/lib/state.mjs";
 
@@ -706,6 +706,8 @@ test("write task output focuses on the Codex result without generic follow-up hi
   fs.writeFileSync(path.join(repo, "README.md"), "hello\n");
   run("git", ["add", "README.md"], { cwd: repo });
   run("git", ["commit", "-m", "init"], { cwd: repo });
+
+  writePolicy(repo);
 
   const result = run("node", [SCRIPT, "task", "--write", "fix the failing test"], {
     cwd: repo,
@@ -1522,6 +1524,8 @@ test("result for a finished write-capable task returns the raw Codex final respo
   run("git", ["add", "README.md"], { cwd: repo });
   run("git", ["commit", "-m", "init"], { cwd: repo });
 
+  writePolicy(repo);
+
   const taskRun = run("node", [SCRIPT, "task", "--write", "fix the flaky integration test"], {
     cwd: repo,
     env: buildEnv(binDir)
@@ -1940,6 +1944,8 @@ test("stop hook runs a stop-time review task and blocks on findings when the rev
   assert.equal(setup.status, 0, setup.stderr);
   const setupPayload = JSON.parse(setup.stdout);
   assert.equal(setupPayload.reviewGateEnabled, true);
+
+  writePolicy(repo);
 
   const taskResult = run("node", [SCRIPT, "task", "--write", "fix the issue"], {
     cwd: repo,

@@ -63,7 +63,8 @@ would apply to an explicit invocation.
 Read-only review and write-capable implementation are separate capabilities.
 Write-capable work must execute in an isolated worktree and produce a
 reviewable diff. Models may propose changes and run permitted verification, but
-they may not merge directly into the user's active branch.
+a model may never decide on its own authority that a diff lands in the user's
+active branch.
 
 Security decisions are enforced outside model prompts. Release readiness
 requires:
@@ -74,11 +75,19 @@ requires:
 - credential and environment-variable isolation;
 - durable job ownership and cancellation;
 - structured verification without arbitrary shell criteria;
-- one-use approval bound to the repository and reviewed diff; and
+- authorization bound to the repository and reviewed diff; and
 - an auditable, explicit merge operation.
 
 Claude hooks and Codex execution policies are defense in depth. Neither is the
-sole authority, and bypass modes must not expand the allowed effect set.
+sole authority.
+
+Effect limits are set by policy and isolation, not by the host permission mode.
+The host permission mode may govern whether the plugin pauses for confirmation
+and whether a verified diff is landed automatically. It never widens writable
+roots, never disables verification, and never permits writes outside the job
+worktree. A permission mode is authorization supplied by the user through the
+host, so it may relax interactivity; it is not a capability grant, so it may not
+relax isolation.
 
 ## Upstream Relationship
 

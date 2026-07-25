@@ -25,7 +25,16 @@ import { resolveClaudeSessionPath } from "./lib/claude-session-transfer.mjs";
 import { readStdinIfPiped } from "./lib/fs.mjs";
 import { collectReviewContext, ensureGitRepository, resolveReviewTarget } from "./lib/git.mjs";
 import { binaryAvailable, terminateProcessTree } from "./lib/process.mjs";
+import { isKnownAgent, listBuiltInAgents, matchesAnyGlob, resolveAgentCapability } from "./lib/policy.mjs";
 import { loadPromptTemplate, interpolateTemplate } from "./lib/prompts.mjs";
+import {
+  commitWorktreeChanges,
+  createJobWorktree,
+  findOutOfBoundsChanges,
+  getWorktreeDiff,
+  listWorktreeChangedFiles,
+  removeJobWorktree
+} from "./lib/worktree.mjs";
 import {
   generateJobId,
   getConfig,
@@ -71,6 +80,7 @@ const DEFAULT_STATUS_POLL_INTERVAL_MS = 2000;
 const VALID_REASONING_EFFORTS = new Set(["none", "minimal", "low", "medium", "high", "xhigh"]);
 const MODEL_ALIASES = new Map([["spark", "gpt-5.3-codex-spark"]]);
 const STOP_REVIEW_TASK_MARKER = "Run a stop-gate review of the previous Claude turn.";
+const DEFAULT_TASK_AGENT = "rescue";
 
 function printUsage() {
   console.log(
@@ -79,7 +89,7 @@ function printUsage() {
       "  node scripts/codex-companion.mjs setup [--enable-review-gate|--disable-review-gate] [--json]",
       "  node scripts/codex-companion.mjs review [--wait|--background] [--base <ref>] [--scope <auto|working-tree|branch>]",
       "  node scripts/codex-companion.mjs adversarial-review [--wait|--background] [--base <ref>] [--scope <auto|working-tree|branch>] [focus text]",
-      "  node scripts/codex-companion.mjs task [--background] [--write] [--resume-last|--resume|--fresh] [--model <model|spark>] [--effort <none|minimal|low|medium|high|xhigh>] [prompt]",
+      "  node scripts/codex-companion.mjs task [--background] [--write] [--agent <explore|implement|test|verify|rescue>] [--resume-last|--resume|--fresh] [--model <model|spark>] [--effort <none|minimal|low|medium|high|xhigh>] [prompt]",
       "  node scripts/codex-companion.mjs transfer [--source <claude-jsonl>] [--json]",
       "  node scripts/codex-companion.mjs status [job-id] [--all] [--json]",
       "  node scripts/codex-companion.mjs result [job-id] [--json]",
@@ -123,6 +133,20 @@ function normalizeReasoningEffort(effort) {
     throw new Error(
       `Unsupported reasoning effort "${effort}". Use one of: none, minimal, low, medium, high, xhigh.`
     );
+  }
+  return normalized;
+}
+
+function normalizeAgentName(agent) {
+  if (agent == null) {
+    return DEFAULT_TASK_AGENT;
+  }
+  const normalized = String(agent).trim().toLowerCase();
+  if (!normalized) {
+    return DEFAULT_TASK_AGENT;
+  }
+  if (!isKnownAgent(normalized)) {
+    throw new Error(`Unknown Codex agent "${agent}". Use one of: ${listBuiltInAgents().join(", ")}.`);
   }
   return normalized;
 }
@@ -458,6 +482,61 @@ async function executeReviewRun(request) {
 }
 
 
+/**
+ * Collect what a write run produced, refuse anything outside the agent's writable globs, and
+ * commit the rest onto the job branch so it can be reviewed and cherry-picked later.
+ */
+function finalizeWriteIsolation({ workspaceRoot, isolation, capability, jobId, summary, onProgress }) {
+  const changedFiles = listWorktreeChangedFiles(isolation.path);
+  if (changedFiles.length === 0) {
+    removeJobWorktree(workspaceRoot, jobId, { deleteBranch: true });
+    onProgress?.("Codex made no file changes; removed the empty job worktree.");
+    return {
+      worktreePath: null,
+      branch: null,
+      baseSha: isolation.baseSha,
+      commitSha: null,
+      changedFiles: [],
+      violations: [],
+      stat: ""
+    };
+  }
+
+  const violations = findOutOfBoundsChanges(isolation.path, changedFiles, (relativePath) =>
+    matchesAnyGlob(relativePath, capability.writableGlobs)
+  );
+  if (violations.length > 0) {
+    onProgress?.(
+      `Refused to record ${violations.length} out-of-policy change(s): ${violations
+        .map((violation) => `${violation.path} (${violation.reason})`)
+        .join(", ")}`
+    );
+    return {
+      worktreePath: isolation.path,
+      branch: isolation.branch,
+      baseSha: isolation.baseSha,
+      commitSha: null,
+      changedFiles,
+      violations,
+      stat: ""
+    };
+  }
+
+  const commit = commitWorktreeChanges(isolation.path, `codex: ${summary}`);
+  const diff = commit.committed ? getWorktreeDiff(isolation.path, isolation.baseSha) : { stat: "", files: changedFiles };
+  onProgress?.(`Recorded ${changedFiles.length} changed file(s) on ${isolation.branch}.`);
+
+  return {
+    worktreePath: isolation.path,
+    branch: isolation.branch,
+    baseSha: isolation.baseSha,
+    commitSha: commit.sha,
+    changedFiles: diff.files,
+    violations: [],
+    stat: diff.stat
+  };
+}
+
 async function executeTaskRun(request) {
   const workspaceRoot = resolveWorkspaceRoot(request.cwd);
   ensureCodexAvailable(request.cwd);
@@ -466,6 +545,14 @@ async function executeTaskRun(request) {
     prompt: request.prompt,
     resumeLast: request.resumeLast
   });
+
+  const capability = resolveAgentCapability(workspaceRoot, request.agent ?? DEFAULT_TASK_AGENT, {
+    write: Boolean(request.write)
+  });
+  if (request.write && !capability.allowed) {
+    throw new Error(capability.reason);
+  }
+  const writeCapable = capability.capability === "write";
 
   let resumeThreadId = null;
   if (request.resumeLast) {
@@ -482,17 +569,46 @@ async function executeTaskRun(request) {
     throw new Error("Provide a prompt, a prompt file, piped stdin, or use --resume-last.");
   }
 
-  const result = await runAppServerTurn(workspaceRoot, {
-    resumeThreadId,
-    prompt: request.prompt,
-    defaultPrompt: resumeThreadId ? DEFAULT_CONTINUE_PROMPT : "",
-    model: request.model,
-    effort: request.effort,
-    sandbox: request.write ? "workspace-write" : "read-only",
-    onProgress: request.onProgress,
-    persistThread: true,
-    threadName: resumeThreadId ? null : buildPersistentTaskThreadName(request.prompt || DEFAULT_CONTINUE_PROMPT)
-  });
+  if (writeCapable && !request.jobId) {
+    throw new Error("Write-capable Codex runs require a tracked job id.");
+  }
+
+  // Write-capable work never runs against the active checkout.
+  const isolation = writeCapable ? createJobWorktree(workspaceRoot, request.jobId) : null;
+  if (isolation) {
+    request.onProgress?.(`Isolated worktree ready at ${isolation.path} on ${isolation.branch}.`);
+  }
+
+  let result;
+  try {
+    result = await runAppServerTurn(isolation ? isolation.path : workspaceRoot, {
+      resumeThreadId,
+      prompt: request.prompt,
+      defaultPrompt: resumeThreadId ? DEFAULT_CONTINUE_PROMPT : "",
+      model: request.model,
+      effort: request.effort,
+      sandbox: writeCapable ? "workspace-write" : "read-only",
+      onProgress: request.onProgress,
+      persistThread: true,
+      threadName: resumeThreadId ? null : buildPersistentTaskThreadName(request.prompt || DEFAULT_CONTINUE_PROMPT)
+    });
+  } catch (error) {
+    if (isolation) {
+      removeJobWorktree(workspaceRoot, request.jobId, { deleteBranch: true });
+    }
+    throw error;
+  }
+
+  const isolationReport = isolation
+    ? finalizeWriteIsolation({
+        workspaceRoot,
+        isolation,
+        capability,
+        jobId: request.jobId,
+        summary: taskMetadata.summary,
+        onProgress: request.onProgress
+      })
+    : null;
 
   const rawOutput = typeof result.finalMessage === "string" ? result.finalMessage : "";
   const failureMessage = result.error?.message ?? result.stderr ?? "";
@@ -513,7 +629,10 @@ async function executeTaskRun(request) {
     threadId: result.threadId,
     rawOutput,
     touchedFiles: result.touchedFiles,
-    reasoningSummary: result.reasoningSummary
+    reasoningSummary: result.reasoningSummary,
+    agent: capability.agent,
+    capability: capability.capability,
+    isolation: isolationReport
   };
 
   return {
@@ -525,7 +644,9 @@ async function executeTaskRun(request) {
     summary: firstMeaningfulLine(rawOutput, firstMeaningfulLine(failureMessage, `${taskMetadata.title} finished.`)),
     jobTitle: taskMetadata.title,
     jobClass: "task",
-    write: Boolean(request.write)
+    write: writeCapable,
+    agent: capability.agent,
+    isolation: isolationReport
   };
 }
 
@@ -601,7 +722,7 @@ function buildTaskJob(workspaceRoot, taskMetadata, write) {
   });
 }
 
-function buildTaskRequest({ cwd, model, effort, prompt, write, resumeLast, jobId }) {
+function buildTaskRequest({ cwd, model, effort, prompt, write, resumeLast, jobId, agent }) {
   return {
     cwd,
     model,
@@ -609,7 +730,8 @@ function buildTaskRequest({ cwd, model, effort, prompt, write, resumeLast, jobId
     prompt,
     write,
     resumeLast,
-    jobId
+    jobId,
+    agent: agent ?? DEFAULT_TASK_AGENT
   };
 }
 
@@ -761,7 +883,7 @@ async function handleReview(argv) {
 
 async function handleTask(argv) {
   const { options, positionals } = parseCommandInput(argv, {
-    valueOptions: ["model", "effort", "cwd", "prompt-file"],
+    valueOptions: ["model", "effort", "cwd", "prompt-file", "agent"],
     booleanOptions: ["json", "write", "resume-last", "resume", "fresh", "background"],
     aliasMap: {
       m: "model"
@@ -772,6 +894,7 @@ async function handleTask(argv) {
   const workspaceRoot = resolveCommandWorkspace(options);
   const model = normalizeRequestedModel(options.model);
   const effort = normalizeReasoningEffort(options.effort);
+  const agent = normalizeAgentName(options.agent);
   const prompt = readTaskPrompt(cwd, options, positionals);
 
   const resumeLast = Boolean(options["resume-last"] || options.resume);
@@ -797,7 +920,8 @@ async function handleTask(argv) {
       prompt,
       write,
       resumeLast,
-      jobId: job.id
+      jobId: job.id,
+      agent
     });
     const { payload } = enqueueBackgroundTask(cwd, job, request);
     outputCommandResult(payload, renderQueuedTaskLaunch(payload), options.json);
@@ -816,6 +940,7 @@ async function handleTask(argv) {
         write,
         resumeLast,
         jobId: job.id,
+        agent,
         onProgress: progress
       }),
     { json: options.json }
