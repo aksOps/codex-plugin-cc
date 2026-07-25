@@ -91,14 +91,22 @@ relax isolation.
 
 ## Upstream Relationship
 
-The fork keeps OpenAI's repository as its upstream and minimizes changes to
-the command surface, app-server protocol, result rendering, and session
-transfer behavior. Fork-specific policy, state, and isolation logic should
-remain modular so upstream updates can be reviewed and merged without silently
-weakening the product contract.
+This repository is a standalone project seeded from `openai/codex-plugin-cc` at
+commit `db52e28`. It left that fork network and has no configured upstream
+remote, so upstream changes are adopted deliberately by porting them rather than
+by merging a tracked branch.
 
-Apache-2.0 license and NOTICE requirements remain in force. The fork must not
-imply that its modifications are maintained or endorsed by OpenAI.
+It still minimizes divergence from upstream's command surface, app-server
+protocol, result rendering, and session transfer behavior, and keeps
+fork-specific policy, isolation, verification, and landing logic in separate
+modules. That separation is what makes a future port reviewable instead of a
+rewrite, and it is why an upstream change should never silently weaken the
+product contract.
+
+Apache-2.0 license and NOTICE requirements remain in force. The original
+copyright notice is retained and a modification notice is appended alongside it.
+This project must not imply that its modifications are maintained, sponsored, or
+endorsed by OpenAI.
 
 ## Release Gates
 

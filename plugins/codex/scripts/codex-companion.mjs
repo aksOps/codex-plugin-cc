@@ -27,6 +27,7 @@ import { collectReviewContext, ensureGitRepository, resolveReviewTarget } from "
 import { binaryAvailable, terminateProcessTree } from "./lib/process.mjs";
 import { createApprovalHandler, resolveAllowedCommands } from "./lib/approvals.mjs";
 import { assertConcurrencyAvailable } from "./lib/limits.mjs";
+import { reconcileJobOwnership } from "./lib/job-ownership.mjs";
 import { landJob } from "./lib/landing.mjs";
 import { describePermissionMode, readPermissionMode } from "./lib/permission-mode.mjs";
 import { runVerification, summarizeVerification } from "./lib/verification.mjs";
@@ -980,6 +981,8 @@ async function handleTask(argv) {
 
   const cwd = resolveCommandCwd(options);
   const workspaceRoot = resolveCommandWorkspace(options);
+  // A crashed worker must not hold a concurrency slot forever.
+  reconcileJobOwnership(workspaceRoot);
   const model = normalizeRequestedModel(options.model);
   const effort = normalizeReasoningEffort(options.effort);
   const agent = normalizeAgentName(options.agent);
@@ -1100,6 +1103,8 @@ async function handleStatus(argv) {
   });
 
   const cwd = resolveCommandCwd(options);
+  // Report reality: a job whose owner died is stale, not still running.
+  reconcileJobOwnership(resolveCommandWorkspace(options));
   const reference = positionals[0] ?? "";
   if (reference) {
     const snapshot = options.wait
