@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import process from "node:process";
 
+import { claimJob, renewedLease } from "./job-ownership.mjs";
 import { readJobFile, resolveJobFile, resolveJobLogFile, upsertJob, writeJobFile } from "./state.mjs";
 
 export const SESSION_ID_ENV = "CODEX_COMPANION_SESSION_ID";
@@ -99,6 +100,8 @@ export function createJobProgressUpdater(workspaceRoot, jobId) {
       return;
     }
 
+    // Progress is also proof of life, so renew the ownership lease alongside it.
+    Object.assign(patch, renewedLease());
     upsertJob(workspaceRoot, patch);
 
     const jobFile = resolveJobFile(workspaceRoot, jobId);
@@ -146,6 +149,8 @@ export async function runTrackedJob(job, runner, options = {}) {
     startedAt: nowIso(),
     phase: "starting",
     pid: process.pid,
+    // Claim ownership so another process can tell whether this job is still alive.
+    ...claimJob(),
     logFile: options.logFile ?? job.logFile ?? null
   };
   writeJobFile(job.workspaceRoot, job.id, runningRecord);

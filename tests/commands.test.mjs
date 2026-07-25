@@ -258,6 +258,15 @@ test("fork scope separates permission-mode authorization from isolation limits",
   assert.doesNotMatch(scope, /bypass modes must not expand the allowed effect set/i);
 });
 
+test("fork scope describes a standalone repository, not a tracked fork", () => {
+  const scope = fs.readFileSync(path.join(ROOT, "FORK_SCOPE.md"), "utf8");
+
+  assert.match(scope, /standalone project seeded from `openai\/codex-plugin-cc` at\s+commit `db52e28`/);
+  assert.match(scope, /has no configured upstream\s+remote/i);
+  assert.match(scope, /maintained, sponsored, or\s+endorsed by OpenAI/i);
+  assert.doesNotMatch(scope, /keeps OpenAI's repository as its upstream/i);
+});
+
 test("execution policy schema documents fail-closed write capability", () => {
   const schema = JSON.parse(read("schemas/policy.schema.json"));
 
