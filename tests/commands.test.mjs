@@ -201,6 +201,29 @@ test("fork scope excludes quota routing and preserves explicit failure handling"
   assert.match(resultHandling, /do not turn a failed or incomplete Codex run into a Claude-side implementation attempt/i);
 });
 
+test("fork scope separates permission-mode authorization from isolation limits", () => {
+  const scope = fs.readFileSync(path.join(ROOT, "FORK_SCOPE.md"), "utf8");
+
+  assert.match(scope, /Effect limits are set by policy and isolation, not by the host\s+permission mode/i);
+  assert.match(scope, /never widens writable\s+roots, never disables verification, and never permits writes outside the job\s+worktree/i);
+  assert.match(scope, /it is not a capability grant, so it may not\s+relax isolation/i);
+  assert.match(scope, /a model may never decide on its own authority that a diff lands/i);
+
+  // The old absolute wording is what this fork deliberately replaced; keeping it would
+  // contradict the permission inheritance the plugin now implements.
+  assert.doesNotMatch(scope, /bypass modes must not expand the allowed effect set/i);
+});
+
+test("execution policy schema documents fail-closed write capability", () => {
+  const schema = JSON.parse(read("schemas/policy.schema.json"));
+
+  assert.equal(schema.properties.version.const, 1);
+  assert.deepEqual(schema.required, ["version", "agents"]);
+  assert.match(schema.description, /denies every write capability/i);
+  assert.deepEqual(schema.properties.agents.additionalProperties.properties.capability.enum, ["read", "write"]);
+  assert.match(schema.properties.verification.description, /argv arrays only/i);
+});
+
 test("internal docs use task terminology for rescue runs", () => {
   const runtimeSkill = read("skills/codex-cli-runtime/SKILL.md");
   const promptingSkill = read("skills/gpt-5-4-prompting/SKILL.md");

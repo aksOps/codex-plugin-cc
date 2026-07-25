@@ -1,0 +1,35 @@
+{
+  "$schema": "./../plugins/codex/schemas/policy.schema.json",
+  "version": 1,
+  "agents": {
+    "explore": { "capability": "read" },
+    "verify": { "capability": "read" },
+    "implement": {
+      "capability": "write",
+      "writableGlobs": ["plugins/codex/**", "tests/**", "scripts/**", "docs/**", "*.md"]
+    },
+    "test": {
+      "capability": "write",
+      "writableGlobs": ["tests/**", "**/*.test.mjs"]
+    },
+    "rescue": {
+      "capability": "write",
+      "writableGlobs": ["plugins/codex/**", "tests/**", "scripts/**"]
+    }
+  },
+  "verification": [
+    { "id": "unit", "argv": ["npm", "test"], "expect": { "exitCode": 0 }, "required": true },
+    { "id": "version", "argv": ["npm", "run", "check-version"], "expect": { "exitCode": 0 }, "required": true }
+  ],
+  "limits": {
+    "maxDurationMs": 900000,
+    "maxOutputBytes": 1048576,
+    "maxConcurrentJobs": 3,
+    "network": "off",
+    "envPassthrough": ["PATH", "HOME", "LANG"]
+  },
+  "landing": {
+    "allowAutoLand": false,
+    "requireCleanTree": true
+  }
+}

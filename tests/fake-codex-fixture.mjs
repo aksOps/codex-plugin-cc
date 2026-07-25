@@ -458,6 +458,15 @@ rl.on("line", (line) => {
           ? structuredReviewPayload(prompt)
           : taskPayload(prompt, thread.name && thread.name.startsWith("Codex Companion Task") && prompt.includes("Continue from the current thread state"));
 
+        // Write behaviors let isolation tests prove where edits actually land.
+        if (BEHAVIOR === "writes-in-policy" && thread.cwd) {
+          fs.mkdirSync(path.join(thread.cwd, "src"), { recursive: true });
+          fs.writeFileSync(path.join(thread.cwd, "src", "generated.txt"), "codex wrote this\\n");
+        }
+        if (BEHAVIOR === "writes-out-of-policy" && thread.cwd) {
+          fs.writeFileSync(path.join(thread.cwd, "not-allowed.env"), "TOKEN=nope\\n");
+        }
+
         if (
           BEHAVIOR === "with-subagent" ||
           BEHAVIOR === "with-late-subagent-message" ||

@@ -30,3 +30,25 @@ export function initGitRepo(cwd) {
   run("git", ["config", "commit.gpgsign", "false"], { cwd });
   run("git", ["config", "tag.gpgsign", "false"], { cwd });
 }
+
+export const DEFAULT_TEST_POLICY = {
+  version: 1,
+  agents: {
+    rescue: { capability: "write", writableGlobs: ["**"] },
+    implement: { capability: "write", writableGlobs: ["**"] },
+    test: { capability: "write", writableGlobs: ["tests/**", "**/*.test.*"] },
+    explore: { capability: "read" },
+    verify: { capability: "read" }
+  }
+};
+
+/**
+ * Write an execution policy into a fixture repository. Write-capable runs are denied without
+ * one, so any test that exercises `--write` needs this.
+ */
+export function writePolicy(cwd, policy = DEFAULT_TEST_POLICY) {
+  const policyDir = path.join(cwd, ".codex-plugin");
+  fs.mkdirSync(policyDir, { recursive: true });
+  fs.writeFileSync(path.join(policyDir, "policy.json"), `${JSON.stringify(policy, null, 2)}\n`, "utf8");
+  return path.join(policyDir, "policy.json");
+}
