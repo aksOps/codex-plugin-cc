@@ -65,14 +65,27 @@ test("output truncation keeps the tail and marks itself", () => {
   assert.equal(Buffer.byteLength(long.text, "utf8") <= 200, true);
 });
 
+/**
+ * Work that outlives its deadline, with a handle to settle it afterwards. A promise that never
+ * settles would leave the test file's event loop with a pending resolution, which the test
+ * runner reports as a cancelled file rather than a passing test.
+ */
+function stallingWork() {
+  let release;
+  const promise = new Promise((resolve) => {
+    release = resolve;
+  });
+  return { work: () => promise, release: () => release(), settled: promise };
+}
+
 test("a run that exceeds its deadline rejects and terminates the process tree", async () => {
   // The terminator is injected rather than real: terminateProcessTree signals a whole process
   // group, and handing it an invented pid asks the host to signal something it does not own.
   const terminated = [];
-  const never = () => new Promise(() => {});
+  const stalled = stallingWork();
 
   await assert.rejects(
-    withDeadline(never, {
+    withDeadline(stalled.work, {
       maxDurationMs: 60,
       getPid: () => 4242,
       terminate: (pid) => terminated.push(pid)
@@ -81,17 +94,25 @@ test("a run that exceeds its deadline rejects and terminates the process tree", 
   );
 
   assert.deepEqual(terminated, [4242]);
+  stalled.release();
+  await stalled.settled;
 });
 
 test("a deadline with no live process terminates nothing", async () => {
   const terminated = [];
-  const never = () => new Promise(() => {});
 
   for (const pid of [null, undefined, 0, -1, Number.NaN]) {
+    const stalled = stallingWork();
     await assert.rejects(
-      withDeadline(never, { maxDurationMs: 20, getPid: () => pid, terminate: (value) => terminated.push(value) }),
+      withDeadline(stalled.work, {
+        maxDurationMs: 20,
+        getPid: () => pid,
+        terminate: (value) => terminated.push(value)
+      }),
       /exceeded the policy limit/
     );
+    stalled.release();
+    await stalled.settled;
   }
 
   assert.deepEqual(terminated, [], "an absent or invalid pid must never be signalled");
