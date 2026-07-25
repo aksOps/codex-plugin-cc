@@ -1,10 +1,15 @@
 {
-  "name": "@openai/codex-plugin-cc",
+  "name": "@aksops/codex-plugin-cc",
   "version": "1.0.6",
   "private": true,
   "type": "module",
   "description": "Use Codex from Claude Code to review code or delegate tasks.",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aksOps/codex-plugin-cc.git"
+  },
+  "homepage": "https://github.com/aksOps/codex-plugin-cc#readme",
   "engines": {
     "node": ">=18.18.0"
   },
