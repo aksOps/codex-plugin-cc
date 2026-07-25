@@ -26,39 +26,36 @@ add, replace, restrict, or reinterpret its authentication methods.
 
 ChatGPT login, API-key authentication, custom model providers, and endpoint
 configuration continue to behave as documented and implemented upstream.
-Feature code may consume provider availability, model metadata, and quota
-signals exposed by the runtime, but it must not inspect credentials or make
-authentication policy decisions.
+Feature code may consume provider availability and model metadata exposed by
+the runtime, but it must not inspect credentials or make authentication policy
+decisions.
 
 The fork must:
 
 - delegate login, refresh, logout, and credential storage to Codex;
 - preserve supported upstream authentication and provider configurations;
 - avoid reading, copying, logging, or returning authentication secrets; and
-- keep routing behavior independent from the mechanism used to authenticate.
+- keep delegation behavior independent from the mechanism used to authenticate.
 
-## Quota-Aware Routing
+## Delegation Boundary
 
-Routing uses provider availability and observed quota state when the active
-runtime exposes those signals. It must never infer quota from model prose or
-silently substitute a provider.
+Codex execution begins through an explicit plugin command or proactive
+delegation by the Claude host based on task suitability. Delegation does not
+use estimated usage or remaining quota.
 
-The router may send eligible work to Codex when:
+The host may send eligible work to Codex when:
 
 - the requested model is available from the configured Codex provider;
 - the task policy permits Codex execution; and
 - the execution sandbox required by the task is available.
 
-Automatic quota-aware redirection additionally requires a known quota signal
-above the configured reserve. An unavailable quota signal is reported as
-unknown and must not disable an otherwise supported upstream authentication
-mode or explicit Codex invocation. When Codex is unavailable or known to be
-below reserve, the router returns an explicit reason and leaves automatic
-execution with Claude. Quota degradation must be deterministic, observable,
-and reversible when fresh quota data becomes available.
+If Codex is unavailable or execution fails, including because the provider
+rejects further usage, the plugin reports the failure and returns control to
+Claude. It must not silently substitute a provider or repeat the task with
+Claude after Codex may have produced partial effects.
 
-The router may become aggressive about delegation, but not about authority.
-Automatic write delegation is allowed only within the same effect limits that
+The host may become aggressive about delegation, but not about authority.
+Proactive write delegation is allowed only within the same effect limits that
 would apply to an explicit invocation.
 
 ## Execution and Security
@@ -87,9 +84,9 @@ sole authority, and bypass modes must not expand the allowed effect set.
 
 The fork keeps OpenAI's repository as its upstream and minimizes changes to
 the command surface, app-server protocol, result rendering, and session
-transfer behavior. Fork-specific policy, quota, state, and isolation logic
-should remain modular so upstream updates can be reviewed and merged without
-silently weakening the product contract.
+transfer behavior. Fork-specific policy, state, and isolation logic should
+remain modular so upstream updates can be reviewed and merged without silently
+weakening the product contract.
 
 Apache-2.0 license and NOTICE requirements remain in force. The fork must not
 imply that its modifications are maintained or endorsed by OpenAI.
@@ -102,8 +99,9 @@ release commit:
 1. A fresh plugin installation works without a source checkout.
 2. Existing upstream authentication and provider configurations continue to
    work without fork-specific credential handling.
-3. Model discovery and quota-aware degradation work in a live session,
-   including the explicit unknown-quota case.
+3. Model discovery and explicit or proactive delegation work in a live
+   session, and unavailable or failed Codex execution is reported without
+   silent provider substitution.
 4. Read-only and write-capable invocations complete through the plugin surface.
 5. Write-capable work cannot modify the active checkout or paths outside its
    isolated worktree.

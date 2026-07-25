@@ -7,7 +7,7 @@ they already have.
 
 > [!IMPORTANT]
 > This fork preserves upstream authentication and runtime behavior while
-> quota-aware routing and safer write-execution features are developed. The
+> extending Codex delegation and developing safer write-execution features. The
 > feature and release boundary is defined in [Fork Scope](./FORK_SCOPE.md).
 
 <video src="./docs/plugin-demo.webm" controls muted playsinline autoplay></video>

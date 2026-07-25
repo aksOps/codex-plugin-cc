@@ -187,6 +187,20 @@ test("transfer, result, and cancel commands are exposed as deterministic runtime
   assert.match(resultHandling, /if Codex was never successfully invoked, do not generate a substitute answer at all/i);
 });
 
+test("fork scope excludes quota routing and preserves explicit failure handling", () => {
+  const scope = fs.readFileSync(path.join(ROOT, "FORK_SCOPE.md"), "utf8");
+  const readme = fs.readFileSync(path.join(ROOT, "README.md"), "utf8");
+  const resultHandling = read("skills/codex-result-handling/SKILL.md");
+
+  assert.match(scope, /## Delegation Boundary/);
+  assert.match(scope, /Delegation does not\s+use estimated usage or remaining quota/i);
+  assert.match(scope, /reports the failure and returns control to\s+Claude/i);
+  assert.match(scope, /must not silently substitute a provider or repeat the task with\s+Claude/i);
+  assert.doesNotMatch(scope, /quota-aware|quota signal|unknown-quota|configured reserve/i);
+  assert.doesNotMatch(readme, /quota-aware routing/i);
+  assert.match(resultHandling, /do not turn a failed or incomplete Codex run into a Claude-side implementation attempt/i);
+});
+
 test("internal docs use task terminology for rescue runs", () => {
   const runtimeSkill = read("skills/codex-cli-runtime/SKILL.md");
   const promptingSkill = read("skills/gpt-5-4-prompting/SKILL.md");
