@@ -75,13 +75,57 @@ test("continue is not exposed as a user-facing command", () => {
   assert.deepEqual(commandFiles, [
     "adversarial-review.md",
     "cancel.md",
+    "diff.md",
+    "explore.md",
+    "implement.md",
+    "land.md",
     "rescue.md",
     "result.md",
     "review.md",
     "setup.md",
     "status.md",
-    "transfer.md"
+    "test.md",
+    "transfer.md",
+    "verify.md"
   ]);
+});
+
+test("each capability-typed agent pins its own policy identity", () => {
+  const agentFiles = fs.readdirSync(path.join(PLUGIN_ROOT, "agents")).sort();
+  assert.deepEqual(agentFiles, [
+    "codex-explore.md",
+    "codex-implement.md",
+    "codex-rescue.md",
+    "codex-test.md",
+    "codex-verify.md"
+  ]);
+
+  const expectations = [
+    ["codex-explore.md", "--agent explore", false],
+    ["codex-implement.md", "--write --agent implement", true],
+    ["codex-test.md", "--write --agent test", true],
+    ["codex-verify.md", "--agent verify", false]
+  ];
+
+  for (const [file, forwarded, writeCapable] of expectations) {
+    const agent = read(`agents/${file}`);
+    assert.match(agent, new RegExp(forwarded.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&")), `${file} forwards ${forwarded}`);
+    assert.match(agent, /Return the stdout of the `codex-companion` command exactly as-is/, `${file} stays a forwarder`);
+    if (!writeCapable) {
+      assert.match(agent, /Never pass `--write`/, `${file} states it is read-only`);
+    }
+  }
+});
+
+test("landing stays a user action and is never composed from raw git by the model", () => {
+  const resultHandling = read("skills/codex-result-handling/SKILL.md");
+  const diffCommand = read("commands/diff.md");
+  const landCommand = read("commands/land.md");
+
+  assert.match(resultHandling, /Never run them on the user's behalf/i);
+  assert.match(diffCommand, /\*\*Do not run them\.\*\*/);
+  assert.match(landCommand, /never pushes, never force-pushes, and never merges to\s+a remote/i);
+  assert.match(landCommand, /disable-model-invocation: true/);
 });
 
 test("rescue command absorbs continue semantics", () => {

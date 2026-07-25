@@ -27,6 +27,9 @@ import { collectReviewContext, ensureGitRepository, resolveReviewTarget } from "
 import { binaryAvailable, terminateProcessTree } from "./lib/process.mjs";
 import { createApprovalHandler, resolveAllowedCommands } from "./lib/approvals.mjs";
 import { assertConcurrencyAvailable } from "./lib/limits.mjs";
+import { landJob } from "./lib/landing.mjs";
+import { describePermissionMode, readPermissionMode } from "./lib/permission-mode.mjs";
+import { runVerification, summarizeVerification } from "./lib/verification.mjs";
 import { isKnownAgent, listBuiltInAgents, matchesAnyGlob, resolveAgentCapability } from "./lib/policy.mjs";
 import { loadPromptTemplate, interpolateTemplate } from "./lib/prompts.mjs";
 import {
@@ -69,7 +72,9 @@ import {
   renderReviewResult,
   renderStoredJobResult,
   renderCancelReport,
+  renderJobDiff,
   renderJobStatusReport,
+  renderLandResult,
   renderSetupReport,
   renderStatusReport,
   renderTaskResult
@@ -92,6 +97,8 @@ function printUsage() {
       "  node scripts/codex-companion.mjs review [--wait|--background] [--base <ref>] [--scope <auto|working-tree|branch>]",
       "  node scripts/codex-companion.mjs adversarial-review [--wait|--background] [--base <ref>] [--scope <auto|working-tree|branch>] [focus text]",
       "  node scripts/codex-companion.mjs task [--background] [--write] [--agent <explore|implement|test|verify|rescue>] [--resume-last|--resume|--fresh] [--model <model|spark>] [--effort <none|minimal|low|medium|high|xhigh>] [prompt]",
+      "  node scripts/codex-companion.mjs diff [job-id] [--json]",
+      "  node scripts/codex-companion.mjs land [job-id] [--json]",
       "  node scripts/codex-companion.mjs transfer [--source <claude-jsonl>] [--json]",
       "  node scripts/codex-companion.mjs status [job-id] [--all] [--json]",
       "  node scripts/codex-companion.mjs result [job-id] [--json]",
@@ -575,6 +582,16 @@ async function executeTaskRun(request) {
     throw new Error("Write-capable Codex runs require a tracked job id.");
   }
 
+  // The host permission mode decides whether the plugin pauses, never what Codex may touch.
+  // The one exception is plan mode, which means "change nothing" and so refuses write agents.
+  const permission = readPermissionMode(workspaceRoot, getCurrentClaudeSessionId());
+  if (writeCapable && !permission.writeAllowed) {
+    throw new Error(
+      `Write execution is refused while the host is in plan mode (${describePermissionMode(permission)}). ` +
+        "Leave plan mode, or use a read-only agent such as --agent explore."
+    );
+  }
+
   if (writeCapable) {
     // The bound caps concurrent write execution and the worktrees it creates. The job being
     // started is excluded because the background path records it before the worker runs.
@@ -640,6 +657,41 @@ async function executeTaskRun(request) {
       })
     : null;
 
+  // Verification runs against what was actually recorded, so it is skipped when nothing was
+  // committed. A failing required check makes the job terminal and unusable for landing.
+  const verification =
+    isolationReport?.commitSha
+      ? runVerification(isolationReport.worktreePath, capability.policy, {
+          onProgress: request.onProgress
+        })
+      : null;
+  if (verification) {
+    request.onProgress?.(`Verification: ${summarizeVerification(verification)}`);
+  }
+
+  // In a host mode that already authorizes edits without asking, a verified diff lands so an
+  // autonomous session is not stalled. Every safety check above still ran.
+  let landed = null;
+  if (isolationReport?.commitSha && (!verification || verification.passed)) {
+    const attempt = landJob({
+      workspaceRoot,
+      storedJob: {
+        id: request.jobId,
+        status: "completed",
+        result: { isolation: isolationReport, verification }
+      },
+      policy: capability.policy,
+      permission,
+      explicit: false
+    });
+    if (attempt.landed) {
+      landed = attempt;
+      request.onProgress?.(`Landed ${isolationReport.branch} as ${attempt.commitSha} (${describePermissionMode(permission)}).`);
+    } else {
+      request.onProgress?.(`Not landed: ${attempt.reason}`);
+    }
+  }
+
   const rawOutput = typeof result.finalMessage === "string" ? result.finalMessage : "";
   const failureMessage = result.error?.message ?? result.stderr ?? "";
   const rendered = renderTaskResult(
@@ -663,7 +715,10 @@ async function executeTaskRun(request) {
     agent: capability.agent,
     capability: capability.capability,
     isolation: isolationReport,
-    approvals: approvalDecisions
+    approvals: approvalDecisions,
+    verification,
+    permission: { mode: permission.mode, source: permission.source, autoLand: permission.autoLand },
+    landed: landed?.audit ?? null
   };
 
   return {
@@ -677,7 +732,9 @@ async function executeTaskRun(request) {
     jobClass: "task",
     write: writeCapable,
     agent: capability.agent,
-    isolation: isolationReport
+    isolation: isolationReport,
+    verification,
+    ...(verification && !verification.passed ? { completionStatus: "verification-failed" } : {})
   };
 }
 
@@ -1116,6 +1173,78 @@ function handleTaskResumeCandidate(argv) {
   outputCommandResult(payload, rendered, options.json);
 }
 
+function readJobIsolation(storedJob) {
+  const isolation = storedJob?.result?.isolation ?? null;
+  if (!isolation?.worktreePath || !isolation.branch) {
+    throw new Error(`Job ${storedJob?.id ?? "(unknown)"} recorded no isolated worktree, so there is no diff to show.`);
+  }
+  return isolation;
+}
+
+function handleDiff(argv) {
+  const { options, positionals } = parseCommandInput(argv, {
+    valueOptions: ["cwd"],
+    booleanOptions: ["json"]
+  });
+
+  const cwd = resolveCommandCwd(options);
+  const { workspaceRoot, job } = resolveResultJob(cwd, positionals[0] ?? "");
+  const storedJob = readStoredJob(workspaceRoot, job.id);
+  const isolation = readJobIsolation(storedJob);
+  const verification = storedJob?.result?.verification ?? null;
+  const landed = storedJob?.result?.landed ?? null;
+  const diff = isolation.commitSha ? getWorktreeDiff(isolation.worktreePath, isolation.baseSha) : { diff: "", stat: "", files: [] };
+
+  const payload = {
+    jobId: job.id,
+    status: storedJob?.status ?? job.status,
+    isolation,
+    verification,
+    landed,
+    diff: diff.diff,
+    stat: diff.stat,
+    files: diff.files
+  };
+
+  outputCommandResult(payload, renderJobDiff(payload), options.json);
+}
+
+function handleLand(argv) {
+  const { options, positionals } = parseCommandInput(argv, {
+    valueOptions: ["cwd"],
+    booleanOptions: ["json"]
+  });
+
+  const cwd = resolveCommandCwd(options);
+  const { workspaceRoot, job } = resolveResultJob(cwd, positionals[0] ?? "");
+  const storedJob = readStoredJob(workspaceRoot, job.id);
+  const capability = resolveAgentCapability(workspaceRoot, storedJob?.result?.agent ?? DEFAULT_TASK_AGENT, {
+    write: false
+  });
+  const permission = readPermissionMode(workspaceRoot, getCurrentClaudeSessionId());
+
+  // An explicit /codex:land is the human acting directly, so authorization is not read from the
+  // permission mode here. Every other precondition still applies.
+  const result = landJob({
+    workspaceRoot,
+    storedJob: { ...storedJob, id: job.id },
+    policy: capability.policy,
+    permission,
+    explicit: true
+  });
+
+  if (!result.landed) {
+    throw new Error(result.reason);
+  }
+
+  writeJobFile(workspaceRoot, job.id, {
+    ...storedJob,
+    result: { ...(storedJob?.result ?? {}), landed: result.audit }
+  });
+
+  outputCommandResult(result, renderLandResult(result), options.json);
+}
+
 async function handleCancel(argv) {
   const { options, positionals } = parseCommandInput(argv, {
     valueOptions: ["cwd"],
@@ -1210,6 +1339,12 @@ async function main() {
       break;
     case "result":
       handleResult(argv);
+      break;
+    case "diff":
+      handleDiff(argv);
+      break;
+    case "land":
+      handleLand(argv);
       break;
     case "task-resume-candidate":
       handleTaskResumeCandidate(argv);
