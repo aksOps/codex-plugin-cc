@@ -66,20 +66,35 @@ test("output truncation keeps the tail and marks itself", () => {
 });
 
 test("a run that exceeds its deadline rejects and terminates the process tree", async () => {
-  let terminatedPid = null;
+  // The terminator is injected rather than real: terminateProcessTree signals a whole process
+  // group, and handing it an invented pid asks the host to signal something it does not own.
+  const terminated = [];
   const never = () => new Promise(() => {});
 
   await assert.rejects(
     withDeadline(never, {
       maxDurationMs: 60,
-      getPid: () => 999999,
-      onTimeout: () => {
-        terminatedPid = 999999;
-      }
+      getPid: () => 4242,
+      terminate: (pid) => terminated.push(pid)
     }),
     /exceeded the policy limit of 60ms/
   );
-  assert.equal(terminatedPid, 999999);
+
+  assert.deepEqual(terminated, [4242]);
+});
+
+test("a deadline with no live process terminates nothing", async () => {
+  const terminated = [];
+  const never = () => new Promise(() => {});
+
+  for (const pid of [null, undefined, 0, -1, Number.NaN]) {
+    await assert.rejects(
+      withDeadline(never, { maxDurationMs: 20, getPid: () => pid, terminate: (value) => terminated.push(value) }),
+      /exceeded the policy limit/
+    );
+  }
+
+  assert.deepEqual(terminated, [], "an absent or invalid pid must never be signalled");
 });
 
 test("a run that finishes before its deadline returns normally", async () => {
