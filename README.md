@@ -5,6 +5,12 @@ Use Codex from inside Claude Code for code reviews or to delegate tasks to Codex
 This plugin is for Claude Code users who want an easy way to start using Codex from the workflow
 they already have.
 
+> [!IMPORTANT]
+> This fork currently preserves the upstream runtime while a subscription-only,
+> quota-aware execution policy is developed. The target behavior and release
+> boundary are defined in [Fork Scope](./FORK_SCOPE.md). Until those gates pass,
+> upstream support for API keys and custom providers remains present.
+
 <video src="./docs/plugin-demo.webm" controls muted playsinline autoplay></video>
 
 ## What You Get
