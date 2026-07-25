@@ -1,0 +1,145 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "name": "risk-critical",
+      "when": {
+        "kind": ["security", "concurrency", "migration"]
+      },
+      "tiers": [
+        {
+          "tier": "fleet:deep",
+          "provider": "claude",
+          "effort": "xhigh"
+        }
+      ]
+    },
+    {
+      "name": "debug-unknown-root-cause",
+      "when": {
+        "kind": "debug",
+        "unknownRootCause": true
+      },
+      "tiers": [
+        {
+          "tier": "fleet:codex-high",
+          "provider": "codex",
+          "effort": "high"
+        },
+        {
+          "tier": "fleet:deep",
+          "provider": "claude",
+          "effort": "high"
+        }
+      ]
+    },
+    {
+      "name": "refactor-cross-module",
+      "when": {
+        "kind": "refactor",
+        "crossModule": true
+      },
+      "tiers": [
+        {
+          "tier": "fleet:deep",
+          "provider": "claude",
+          "effort": "high"
+        }
+      ]
+    },
+    {
+      "name": "test-authoring",
+      "when": {
+        "kind": "test"
+      },
+      "tiers": [
+        {
+          "tier": "fleet:codex-qa",
+          "provider": "codex",
+          "effort": "high"
+        }
+      ]
+    },
+    {
+      "name": "explore-locate",
+      "when": {
+        "kind": "explore"
+      },
+      "tiers": [
+        {
+          "tier": "fleet:codex-explore",
+          "provider": "codex",
+          "effort": "medium"
+        }
+      ]
+    },
+    {
+      "name": "mechanical-single-file-verifiable",
+      "when": {
+        "kind": "mechanical",
+        "fileCountMax": 1,
+        "verifiable": true
+      },
+      "tiers": [
+        {
+          "tier": "fleet:quick",
+          "provider": "claude",
+          "effort": "low"
+        }
+      ]
+    },
+    {
+      "name": "implement-large",
+      "when": {
+        "kind": "implement",
+        "size": "large"
+      },
+      "tiers": [
+        {
+          "tier": "fleet:codex-high",
+          "provider": "codex",
+          "effort": "high"
+        }
+      ]
+    },
+    {
+      "name": "implement-small",
+      "when": {
+        "kind": "implement",
+        "size": "small",
+        "fileCountMax": 2
+      },
+      "tiers": [
+        {
+          "tier": "fleet:codex-low",
+          "provider": "codex",
+          "effort": "low"
+        }
+      ]
+    },
+    {
+      "name": "implement-medium",
+      "when": {
+        "kind": "implement"
+      },
+      "tiers": [
+        {
+          "tier": "fleet:standard",
+          "provider": "claude",
+          "effort": "medium"
+        }
+      ]
+    },
+    {
+      "name": "default-standard",
+      "when": {},
+      "tiers": [
+        {
+          "tier": "fleet:standard",
+          "provider": "claude",
+          "effort": "medium"
+        }
+      ]
+    }
+  ]
+}

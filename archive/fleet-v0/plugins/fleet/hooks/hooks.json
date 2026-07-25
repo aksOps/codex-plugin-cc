@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^(Agent|Task|Edit|Write)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/pre-tool-use.mjs\"",
+            "timeout": 5,
+            "statusMessage": "Fleet routing work to the best-fit tier"
+          }
+        ]
+      }
+    ]
+  }
+}

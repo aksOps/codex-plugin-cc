@@ -1,0 +1,6 @@
+{
+  "name": "fleet",
+  "version": "0.1.0",
+  "description": "Route approved work across Claude and Codex in isolated reviewable worktrees.",
+  "mcpServers": "./.mcp.json"
+}
