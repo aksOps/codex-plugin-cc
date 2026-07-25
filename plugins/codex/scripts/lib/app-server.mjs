@@ -65,6 +65,12 @@ class AppServerClientBase {
     this.exitError = null;
     /** @type {AppServerNotificationHandler | null} */
     this.notificationHandler = null;
+    /**
+     * Handles server-initiated requests such as approval prompts. When unset every server
+     * request is refused, which is the historical behavior and the safe default.
+     * @type {((message: { method: string, params: unknown }) => unknown) | null}
+     */
+    this.requestHandler = null;
     this.lineBuffer = "";
     this.transport = "unknown";
 
@@ -75,6 +81,10 @@ class AppServerClientBase {
 
   setNotificationHandler(handler) {
     this.notificationHandler = handler;
+  }
+
+  setRequestHandler(handler) {
+    this.requestHandler = handler;
   }
 
   /**
@@ -154,10 +164,33 @@ class AppServerClientBase {
   }
 
   handleServerRequest(message) {
-    this.sendMessage({
-      id: message.id,
-      error: buildJsonRpcError(-32601, `Unsupported server request: ${message.method}`)
-    });
+    if (!this.requestHandler) {
+      this.sendMessage({
+        id: message.id,
+        error: buildJsonRpcError(-32601, `Unsupported server request: ${message.method}`)
+      });
+      return;
+    }
+
+    // A handler that throws must not leave the server waiting; refuse instead.
+    Promise.resolve()
+      .then(() => this.requestHandler({ method: message.method, params: message.params }))
+      .then((result) => {
+        if (result === undefined) {
+          this.sendMessage({
+            id: message.id,
+            error: buildJsonRpcError(-32601, `Unsupported server request: ${message.method}`)
+          });
+          return;
+        }
+        this.sendMessage({ id: message.id, result });
+      })
+      .catch((error) => {
+        this.sendMessage({
+          id: message.id,
+          error: buildJsonRpcError(-32603, `Request handler failed: ${error?.message ?? error}`)
+        });
+      });
   }
 
   handleExit(error) {
