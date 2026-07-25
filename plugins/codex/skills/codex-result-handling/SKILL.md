@@ -17,5 +17,8 @@ When the helper returns Codex output:
 - For `codex:codex-rescue`, do not turn a failed or incomplete Codex run into a Claude-side implementation attempt. Report the failure and stop.
 - For `codex:codex-rescue`, if Codex was never successfully invoked, do not generate a substitute answer at all.
 - CRITICAL: After presenting review findings, STOP. Do not make any code changes. Do not fix any issues. You MUST explicitly ask the user which issues, if any, they want fixed before touching a single file. Auto-applying fixes from a review is strictly forbidden, even if the fix is obvious.
+- For write-capable runs, the diff lives on a `codex/<jobId>` branch in an isolated worktree. When the output prints `git fetch` and `git cherry-pick` commands, present them and STOP. Never run them on the user's behalf. Landing happens through `/codex:land` or automatically when the host permission mode already authorizes it, never through git commands you compose yourself.
+- If a run reports refused changes, report them verbatim. Refused changes fell outside the agent's writable globs, were never committed, and must not be reproduced by editing those files yourself.
+- If a run reports `verification-failed`, say so plainly and do not present the result as usable. A failed required check is not a formatting problem to work around.
 - If the helper reports malformed output or a failed Codex run, include the most actionable stderr lines and stop there instead of guessing.
 - If the helper reports that setup or authentication is required, direct the user to `/codex:setup` and do not improvise alternate auth flows.

@@ -1,6 +1,18 @@
 {
-  "description": "Optional stop-time review gate for Codex Companion.",
+  "description": "Session lifecycle, permission-mode capture, and the optional stop-time review gate for Codex Companion.",
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/permission-capture-hook.mjs\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "SessionStart": [
       {
         "hooks": [

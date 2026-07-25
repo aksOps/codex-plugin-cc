@@ -322,6 +322,75 @@ export function renderTaskResult(parsedResult, meta) {
   return `${message}\n`;
 }
 
+function describeVerificationForRender(verification) {
+  if (!verification) {
+    return "verification: not run";
+  }
+  if (!verification.ran) {
+    return `verification: skipped (${verification.skippedReason ?? "no checks declared"})`;
+  }
+  const detail = verification.checks
+    .map((check) => `${check.id} ${check.ok ? "passed" : "failed"}`)
+    .join(", ");
+  return `verification: ${verification.passed ? "passed" : "FAILED"} (${detail})`;
+}
+
+export function renderJobDiff(payload) {
+  const lines = [`# Codex Diff — ${payload.jobId}`, ""];
+  lines.push(`Status: ${payload.status}`);
+  lines.push(describeVerificationForRender(payload.verification));
+
+  if (!payload.isolation.commitSha) {
+    lines.push("");
+    lines.push("This job recorded no committed changes.");
+    if (Array.isArray(payload.isolation.violations) && payload.isolation.violations.length > 0) {
+      lines.push("Refused changes:");
+      for (const violation of payload.isolation.violations) {
+        lines.push(`- ${violation.path}: ${violation.reason}`);
+      }
+    }
+    return `${lines.join("\n")}\n`;
+  }
+
+  lines.push(`Branch: ${payload.isolation.branch}`);
+  lines.push(`Worktree: ${payload.isolation.worktreePath}`);
+  lines.push("");
+  if (payload.stat) {
+    lines.push(payload.stat.trimEnd());
+    lines.push("");
+  }
+  if (payload.diff) {
+    lines.push("```diff");
+    lines.push(payload.diff.trimEnd());
+    lines.push("```");
+    lines.push("");
+  }
+
+  if (payload.landed) {
+    lines.push(`Already landed as ${payload.landed.landedCommit} (authorized by ${payload.landed.authorizedBy}).`);
+    return `${lines.join("\n")}\n`;
+  }
+
+  lines.push("To land this yourself:");
+  lines.push("");
+  lines.push("```bash");
+  lines.push(`git fetch ${payload.isolation.worktreePath} ${payload.isolation.branch}`);
+  lines.push("git cherry-pick FETCH_HEAD");
+  lines.push("```");
+  return `${lines.join("\n")}\n`;
+}
+
+export function renderLandResult(result) {
+  const audit = result.audit;
+  return [
+    `Landed ${audit.sourceBranch} as ${audit.landedCommit}.`,
+    `Source commit: ${audit.sourceCommit}`,
+    `Authorized by: ${audit.authorizedBy}${audit.permissionMode ? ` (${audit.permissionMode})` : ""}`,
+    audit.note,
+    ""
+  ].join("\n");
+}
+
 export function renderStatusReport(report) {
   const lines = [
     "# Codex Status",

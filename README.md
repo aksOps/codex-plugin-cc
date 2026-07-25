@@ -18,6 +18,9 @@ they already have.
 
 - `/codex:review` for a normal read-only Codex review
 - `/codex:adversarial-review` for a steerable challenge review
+- `/codex:implement` and `/codex:test` to hand write-capable work to Codex, which runs in an isolated worktree and returns a reviewable diff
+- `/codex:explore` and `/codex:verify` for read-only investigation and judgment passes
+- `/codex:diff` and `/codex:land` to review that diff and apply it to your branch
 - `/codex:rescue`, `/codex:transfer`, `/codex:status`, `/codex:result`, and `/codex:cancel` to delegate work, hand off sessions, and manage background jobs
 
 ## Requirements
@@ -168,6 +171,70 @@ Ask Codex to redesign the database connection to be more resilient.
 - if you do not pass `--model` or `--effort`, Codex chooses its own defaults.
 - if you say `spark`, the plugin maps that to `gpt-5.3-codex-spark`
 - follow-up rescue requests can continue the latest Codex task in the repo
+
+### Write-capable work: `/codex:implement` and `/codex:test`
+
+These hand real changes to Codex. The change is made in a **git worktree outside your
+checkout**, on a branch named `codex/<jobId>`. Your working tree is never edited by the run.
+
+```bash
+/codex:implement add a retry with backoff to the upload client
+/codex:test cover the timeout path in the upload client
+```
+
+Both require an execution policy at `.codex-plugin/policy.json`. **Without one, write
+execution is denied** — that is deliberate, not a bug. Read-only commands keep working.
+
+```jsonc
+{
+  "version": 1,
+  "agents": {
+    "explore":   { "capability": "read" },
+    "verify":    { "capability": "read" },
+    "implement": { "capability": "write", "writableGlobs": ["src/**", "tests/**"] },
+    "test":      { "capability": "write", "writableGlobs": ["tests/**"] }
+  },
+  "verification": [
+    { "id": "unit", "argv": ["npm", "test"], "expect": { "exitCode": 0 }, "required": true }
+  ],
+  "landing": { "allowAutoLand": true, "requireCleanTree": true }
+}
+```
+
+- `writableGlobs` bound what each agent may modify. A change outside them is refused and never
+  committed.
+- `verification` entries are **argv arrays, never shell strings**. They run inside the
+  worktree, and a failing required check marks the job `verification-failed` and blocks
+  landing.
+- The full shape is documented in
+  [`plugins/codex/schemas/policy.schema.json`](./plugins/codex/schemas/policy.schema.json).
+
+### Reviewing and landing: `/codex:diff` and `/codex:land`
+
+```bash
+/codex:diff              # the recorded diff, plus the exact git commands to apply it
+/codex:land              # apply it as a local commit on your current branch
+```
+
+`/codex:land` refuses unless the job completed, its required checks passed, it produced no
+out-of-policy changes, and your tree is clean. It performs a local `git fetch` and
+`git cherry-pick` only — **it never pushes, force-pushes, or merges to a remote.**
+
+### Landing follows your permission mode
+
+So an autonomous session is not stalled waiting for a merge step, the plugin inherits the
+host's permission mode:
+
+| Claude Code mode | Write agents | The verified diff |
+|---|---|---|
+| `plan` | refused | — |
+| `default` | run in the worktree | diff plus instructions; nothing is applied |
+| `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions` | run in the worktree | landed automatically |
+
+The mode changes **only whether the plugin pauses**. In every mode: writes stay in the
+worktree, `writableGlobs` apply, approval requests are refused by policy, verification runs,
+auto-landing still requires it to pass and requires a clean tree, and
+`landing.allowAutoLand: false` opts a repository out entirely.
 
 ### `/codex:transfer`
 

@@ -153,7 +153,10 @@ export async function runTrackedJob(job, runner, options = {}) {
 
   try {
     const execution = await runner();
-    const completionStatus = execution.exitStatus === 0 ? "completed" : "failed";
+    // A runner may name its own terminal status, e.g. "verification-failed", when the turn
+    // itself succeeded but the result must not be treated as usable.
+    const completionStatus = execution.completionStatus ?? (execution.exitStatus === 0 ? "completed" : "failed");
+    const completionPhase = completionStatus === "completed" ? "done" : completionStatus;
     const completedAt = nowIso();
     writeJobFile(job.workspaceRoot, job.id, {
       ...runningRecord,
@@ -161,7 +164,7 @@ export async function runTrackedJob(job, runner, options = {}) {
       threadId: execution.threadId ?? null,
       turnId: execution.turnId ?? null,
       pid: null,
-      phase: completionStatus === "completed" ? "done" : "failed",
+      phase: completionPhase,
       completedAt,
       result: execution.payload,
       rendered: execution.rendered
@@ -172,7 +175,7 @@ export async function runTrackedJob(job, runner, options = {}) {
       threadId: execution.threadId ?? null,
       turnId: execution.turnId ?? null,
       summary: execution.summary,
-      phase: completionStatus === "completed" ? "done" : "failed",
+      phase: completionPhase,
       pid: null,
       completedAt
     });
