@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.1.0
+
+### Added
+
+- `/codex:init-policy` (companion subcommand `init-policy`): generates a starting
+  `.codex-plugin/policy.json` from the repository's layout and toolchain — writable globs
+  from top-level directories, the test agent scoped to test directories and test-file
+  patterns, and a verification command detected from `package.json` scripts (npm/pnpm/
+  yarn/bun), `go.mod`, `Cargo.toml`, pytest markers, or a Makefile `test` target. Refuses
+  to overwrite an existing policy without `--force`, validates its own output under the
+  runtime's fail-closed loader, and always generates `allowAutoLand: false`. Committing
+  the file remains the human opt-in that enables write agents.
+
 ## 2.0.0
 
 Write-capable Codex work now runs in isolation under an execution policy.

@@ -78,6 +78,7 @@ test("continue is not exposed as a user-facing command", () => {
     "diff.md",
     "explore.md",
     "implement.md",
+    "init-policy.md",
     "land.md",
     "rescue.md",
     "result.md",

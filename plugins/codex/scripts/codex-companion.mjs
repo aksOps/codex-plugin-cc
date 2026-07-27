@@ -32,6 +32,7 @@ import { landJob } from "./lib/landing.mjs";
 import { describePermissionMode, readPermissionMode } from "./lib/permission-mode.mjs";
 import { runVerification, summarizeVerification } from "./lib/verification.mjs";
 import { isKnownAgent, listBuiltInAgents, matchesAnyGlob, resolveAgentCapability } from "./lib/policy.mjs";
+import { detectRepoProfile, generatePolicy, writeGeneratedPolicy } from "./lib/policy-init.mjs";
 import { loadPromptTemplate, interpolateTemplate } from "./lib/prompts.mjs";
 import {
   commitWorktreeChanges,
@@ -98,6 +99,7 @@ function printUsage() {
       "  node scripts/codex-companion.mjs review [--wait|--background] [--base <ref>] [--scope <auto|working-tree|branch>]",
       "  node scripts/codex-companion.mjs adversarial-review [--wait|--background] [--base <ref>] [--scope <auto|working-tree|branch>] [focus text]",
       "  node scripts/codex-companion.mjs task [--background] [--write] [--agent <explore|implement|test|verify|rescue>] [--resume-last|--resume|--fresh] [--model <model|spark>] [--effort <none|minimal|low|medium|high|xhigh>] [prompt]",
+      "  node scripts/codex-companion.mjs init-policy [--force] [--json]",
       "  node scripts/codex-companion.mjs diff [job-id] [--json]",
       "  node scripts/codex-companion.mjs land [job-id] [--json]",
       "  node scripts/codex-companion.mjs transfer [--source <claude-jsonl>] [--json]",
@@ -270,6 +272,52 @@ async function handleSetup(argv) {
 
   const finalReport = await buildSetupReport(cwd, actionsTaken);
   outputResult(options.json ? finalReport : renderSetupReport(finalReport), options.json);
+}
+
+async function handleInitPolicy(argv) {
+  const { options } = parseCommandInput(argv, {
+    valueOptions: ["cwd"],
+    booleanOptions: ["json", "force"]
+  });
+
+  const workspaceRoot = resolveCommandWorkspace(options);
+  const profile = detectRepoProfile(workspaceRoot);
+  const policy = generatePolicy(profile);
+  const { policyPath, overwritten } = writeGeneratedPolicy(workspaceRoot, policy, {
+    force: Boolean(options.force)
+  });
+
+  const payload = { policyPath, overwritten, profile, policy };
+  if (options.json) {
+    outputResult(payload, true);
+    return;
+  }
+
+  const implementGlobs = policy.agents.implement.writableGlobs.join(", ");
+  const testGlobs = policy.agents.test.writableGlobs.join(", ");
+  const verification =
+    policy.verification.length > 0
+      ? policy.verification.map((entry) => `${entry.id}: \`${entry.argv.join(" ")}\``).join(", ")
+      : "none detected — add your test command to `verification` before relying on write jobs";
+  outputResult(
+    [
+      `# Codex Policy ${overwritten ? "Regenerated" : "Generated"}`,
+      "",
+      `Wrote ${policyPath} (toolchain: ${profile.toolchain.name}).`,
+      "",
+      `- implement/rescue may write: ${implementGlobs}`,
+      `- test may write: ${testGlobs}`,
+      `- verification: ${verification}`,
+      "- landing: manual (`allowAutoLand: false`)",
+      "",
+      "This is a starting point derived from the repository layout. Review it, tighten or",
+      "widen the globs to taste, then commit the file — write agents stay disabled in any",
+      "clone that does not carry it, and landing refuses a dirty tree, so an uncommitted",
+      "policy also blocks `/codex:land`.",
+      ""
+    ].join("\n"),
+    false
+  );
 }
 
 function buildAdversarialReviewPrompt(context, focusText) {
@@ -1321,6 +1369,9 @@ async function main() {
   switch (subcommand) {
     case "setup":
       await handleSetup(argv);
+      break;
+    case "init-policy":
+      await handleInitPolicy(argv);
       break;
     case "review":
       await handleReview(argv);
